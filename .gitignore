@@ -1,0 +1,24 @@
+# Temporary files
+*.tmp
+*.log
+~$*
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database backups
+*.backup
+*.dump
+
+# IDE
+.vscode/
+.idea/
+
+# CSV data files (keep structure, not data)
+# *.csv
+
+# SQL temp files
+*_backup.sql
+*_old.sql
