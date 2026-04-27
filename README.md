@@ -112,4 +112,3 @@ SELECT * FROM bl_log.procedure_execution_log;
 
 - [TESTING_GUIDE.md](TESTING_GUIDE.md) - ტესტირების ინსტრუქცია
 - [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) - ტექნიკური დოკუმენტაცია
-- [GITHUB_UPLOAD_GUIDE.md](GITHUB_UPLOAD_GUIDE.md) - GitHub-ზე ატვირთვის ინსტრუქცია
