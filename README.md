@@ -1,17 +1,24 @@
-# DWH Project
+# 🏗️ DWH Project - Data Warehouse Implementation
 
-**Data Warehouse Implementation** - PostgreSQL-ით შემუშავებული ETL Pipeline.
+🌐 **აირჩიეთ ენა / Choose Language:**  
+[🇬🇪 ქართული](#georgian) | [🇺🇸 English](#english)
 
-პროექტი ანალიზირებს ლოკალურ და საერთაშორისო გაყიდვების მონაცემებს CSV ფაილებიდან Kimball-ის dimensional modeling მეთოდოლოგიით.
+---
 
-## არქიტექტურა
+<a name="georgian"></a>
+## 🇬🇪 ქართული ვერსია
 
+**Data Warehouse Implementation** - PostgreSQL-ით შემუშავებული ETL პაიპლაინი.
+
+პროექტი Kimball-ის დიმენსიური მოდელირების მეთოდოლოგიით აანალიზებს გაყიდვების მონაცემებს. არქიტექტურა ორიენტირებულია მონაცემთა ინჟინერიის საუკეთესო პრაქტიკებზე, რაც ქმნის მყარ საფუძველს **Data Science** და ანალიტიკური ამოცანებისთვის.
+
+### 🛠️ არქიტექტურა
 ```
 CSV Files → External Tables → Source Layer → Clean Layer → 3NF Layer → Data Mart
 ```
 
-### Layers:
-| Layer | Schema | მიზანი |
+### ფენები (Layers):
+| ფენა | სქემა | მიზანი |
 |-------|--------|---------|
 | **Source** | `sa_local`, `sa_global` | Raw მონაცემების იმპორტი |
 | **Clean** | `BL_CL` | მონაცემების სტანდარტიზაცია |
@@ -19,27 +26,24 @@ CSV Files → External Tables → Source Layer → Clean Layer → 3NF Layer →
 | **Data Mart** | `bl_dm` | რეპორტინგისთვის ოპტიმიზებული ცხრილები |
 | **Logging** | `bl_log` | ETL მონიტორინგი |
 
-## Features
+### ✨ მახასიათებლები (Features)
+- **Incremental Loading** - მხოლოდ ახალი მონაცემების ჩატვირთვა რესურსების დასაზოგად.
+- **SCD Type 2** - ისტორიული ცვლილებების თრექინგი პროდუქტის დიმენსიაში.
+- **Table Partitioning** - Fact ცხრილების კვარტალური დაყოფა წარმადობისთვის.
+- **ETL Logging** - პროცესების სრული აღრიცხვა და მონიტორინგი.
+- **Materialized Views** - სწრაფი წვდომა წინასწარ დამუშავებულ მონაცემებზე.
 
-- **Incremental Loading** - მხოლოდ ახალი მონაცემების ჩატვირთვა
-- **SCD Type 2** - პროდუქტის dimension-ში historical tracking
-- **Table Partitioning** - Fact tables კვარტალურად დაჰყოფა
-- **ETL Logging** - Full execution tracking
-- **Materialized Views** - სწრაფი წვდომა მონაცემებზე
+### 🚀 ინსტალაცია (Setup)
 
-## Setup
-
-### პრერეკვიზიტები
+#### პრერეკვიზიტები
 - PostgreSQL 14+
 - pgAdmin ან psql
 
-### ნაბიჯები
-
+#### ნაბიჯები
 1. **შექმენი Database:**
 ```sql
 CREATE DATABASE dwh_project;
 ```
-
 2. **შექმენი Schemas:**
 ```sql
 CREATE SCHEMA sa_local;
@@ -50,7 +54,6 @@ CREATE SCHEMA bl_dm;
 CREATE SCHEMA bl_log;
 CREATE SCHEMA bl_master;
 ```
-
 3. **გაუშვი SQL ფაილები თანმიმდევრობით:**
 ```
 1. BL_LOG/BL_LOG.sql
@@ -63,52 +66,66 @@ CREATE SCHEMA bl_master;
 8. BL_Master/BL_Master.sql
 ```
 
-### CSV ფაილები
+### 🔄 ETL გაშვება და მონიტორინგი
+```sql
+CALL bl_master.execute_full_dwh_load(); -- გაშვება
+SELECT * FROM bl_log.incremental_load_log; -- ლოგების შემოწმება
+```
 
-მოათავსე `C:\temp\` ფოლდერში:
-- `local_Wardrobe_sales.csv` - ლოკალური გაყიდვები
-- `international_Wardrobe_sales.csv` - საერთაშორისო გაყიდვები
-
-## სტრუქტურა
-
+### 📂 სტრუქტურა
 ```
 DWH Project/
-├── README.md
-├── TECHNICAL_DOCUMENTATION.md
-├── TESTING_GUIDE.md
-├── GITHUB_UPLOAD_GUIDE.md
-├── .gitignore
 ├── BL_Master/           # ETL Orchestration
 ├── BL_3NF/              # Core Enterprise Layer
-│   ├── Tables/
-│   └── Procedures/
 ├── BL_CL/               # Clean Layer
-│   ├── Tables/
-│   └── Procedures/
 ├── BL_DM/               # Data Mart Layer
-│   ├── Tables/
-│   └── Procedures/
 ├── BL_LOG/              # Logging
 ├── SA_LOCAL/            # Local Source
 ├── SA_GLOBAL/           # International Source
-├── External_Tables/     # CSV Connections
-└── Check_Script/        # Validation
+└── External_Tables/     # CSV Connections
 ```
 
-## Full ETL Run
+---
 
+<a name="english"></a>
+## 🇺🇸 English Version
+
+**Data Warehouse Implementation** - ETL Pipeline developed with PostgreSQL.
+
+The project processes local and international sales data from CSV files using Kimball's dimensional modeling methodology. This scalable architecture serves as a production-grade foundation for **Data Science** workflows and advanced analytics.
+
+### 🛠️ Architecture
+```
+CSV Files → External Tables → Source Layer → Clean Layer → 3NF Layer → Data Mart
+```
+
+### Layers:
+| Layer | Schema | Purpose |
+|-------|--------|---------|
+| **Source** | `sa_local`, `sa_global` | Raw data import |
+| **Clean** | `BL_CL` | Data cleansing & standardization |
+| **3NF** | `bl_3nf` | Core dimensional model with SCD support |
+| **Data Mart** | `bl_dm` | Star schema optimized for reporting |
+| **Logging** | `bl_log` | ETL execution monitoring |
+
+### ✨ Features
+- **Incremental Loading** - Efficiently processing only new records.
+- **SCD Type 2** - Historical tracking in product dimensions.
+- **Table Partitioning** - Fact tables split by quarters for high performance.
+- **ETL Logging** - Full execution tracking and monitoring.
+- **Materialized Views** - Faster access to aggregated data.
+
+### 🚀 Setup Steps
+1. **Create Database:** `CREATE DATABASE dwh_project;`
+2. **Schema Setup:** Initialize all 7 schemas from `sa_local` to `bl_master`.
+3. **Execute SQL files in order:** Run scripts from folders 1 to 8 sequentially.
+4. **CSV Data:** Place source files in `C:\temp\`.
+
+### 🔄 Monitoring & Run
 ```sql
-CALL bl_master.execute_full_dwh_load();
+CALL bl_master.execute_full_dwh_load(); -- Trigger ETL
+SELECT * FROM bl_log.procedure_execution_log; -- Track status
 ```
 
-## Monitoring
-
-```sql
-SELECT * FROM bl_log.incremental_load_log;
-SELECT * FROM bl_log.procedure_execution_log;
-```
-
-## დოკუმენტაცია
-
-- [TESTING_GUIDE.md](TESTING_GUIDE.md) - ტესტირების ინსტრუქცია
-- [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md) - ტექნიკური დოკუმენტაცია
+---
+*📍 Documentation: [TESTING_GUIDE.md](TESTING_GUIDE.md) | [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md)*
