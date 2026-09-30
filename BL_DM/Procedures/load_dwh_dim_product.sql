@@ -25,3 +25,4 @@ Extracts product data from ce_product_scd2 (SCD2 tracking table)
 Inserts only new records into dwh_dim_product
 Prevents duplicate inserts using ON CONFLICT (product_id) DO NOTHING
 Counts how many new products were inserted
+*/

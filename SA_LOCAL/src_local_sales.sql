@@ -103,17 +103,5 @@ EXCEPTION
 END;
 $$;
 
-
-
---  Master Procedure to Execute Both Incremental Loads
-CREATE OR REPLACE PROCEDURE bl_log.master_incremental_load()
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    CALL sa_local.incremental_load_local_sales();
-    CALL sa_global.incremental_load_international_sales();
-END;
-$$;
-
---  Execute the Master Procedure
-CALL bl_log.master_incremental_load();
+-- bl_log.master_incremental_load() is defined and executed in SA_GLOBAL/src_international_sales.sql,
+-- after both source loaders exist.

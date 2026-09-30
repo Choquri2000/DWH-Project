@@ -104,23 +104,5 @@ WHERE insert_dt >= (SELECT COALESCE(MAX(insert_dt), '1900-01-01') FROM bl_3nf.ce
 CREATE UNIQUE INDEX mv_fact_sales_unique_idx 
 ON bl_3nf.mv_fact_sales (order_id, order_dt);
 
-
-DO $$ 
-DECLARE 
-    start_date DATE := '2022-01-01'; -- Adjust to the earliest order date in your data
-    end_date DATE := '2026-01-01'; -- Future-proofing the partitions
-    partition_name TEXT;
-BEGIN
-    WHILE start_date < end_date LOOP
-        partition_name := format('ce_fact_sales_%s', to_char(start_date, 'YYYYMM'));
-
-        EXECUTE format('
-            CREATE TABLE IF NOT EXISTS bl_3nf.%I
-            PARTITION OF bl_3nf.ce_fact_sales 
-            FOR VALUES FROM (%L) TO (%L);',
-            partition_name, start_date, start_date + INTERVAL '3 months'
-        );
-
-        start_date := start_date + INTERVAL '3 months';
-    END LOOP;
-END $$;
+-- Quarterly partitions for bl_3nf.ce_fact_sales are created by bl_3nf.create_partitions()
+-- (BL_3NF/Procedures/create_partitions.sql), based on the order dates in the clean layer.
