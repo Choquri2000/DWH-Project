@@ -49,8 +49,3 @@ SELECT * FROM bl_log.incremental_load_log ORDER BY last_order_date DESC;
 SELECT * FROM BL_LOG.CLEAN_LOAD_LOG ORDER BY last_order_date DESC;
 
 SELECT * FROM bl_log.procedure_execution_log ORDER BY execution_time DESC;
-
-
-    --  Determine if Any Rows Were Inserted
-    SELECT COUNT(*) INTO v_rows_inserted FROM bl_log.procedure_execution_log 
-    WHERE execution_time >= (SELECT MAX(execution_time) FROM bl_log.procedure_execution_log WHERE procedure_name = 'execute_full_dwh_load');

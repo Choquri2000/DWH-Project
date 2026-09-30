@@ -156,7 +156,6 @@ SELECT * FROM BL_LOG.CLEAN_LOAD_LOG;
 ### 6.1. შექმენით ცხრილები
 ```sql
 -- BL_3NF/Tables/Tables.sql
--- სკრიპტი ასევე ქმნის ce_fact_sales-ის კვარტალურ partition-ებს (DO ბლოკი).
 ```
 
 ### 6.2. გაუშვით procedure-ები (BL_3NF/Procedures/)
@@ -170,15 +169,13 @@ CALL bl_3nf.load_ce_branch();
 CALL bl_3nf.load_ce_time();
 ```
 
-> **შენიშვნა:** `bl_3nf.load_ce_buyer()` procedure რეპოზიტორიაში ჯერ არ არის განსაზღვრული. ფაილი `BL_3NF/Procedures/load_dwh_dim_buyer.sql` შეიცავს `bl_dm.load_dwh_dim_buyer()`-ს. ეს ცნობილი შეზღუდვაა და README-შია აღწერილი.
-
 ### 6.3. fact table
 ```sql
 CALL bl_3nf.create_partitions();
 CALL bl_3nf.load_fact_sales();
 ```
 
-> **შენიშვნა:** `bl_3nf.create_partitions()` procedure სახით არ არსებობს. partition-ები 6.1 ნაბიჯში უკვე შეიქმნა `DO` ბლოკით, ამიტომ საკმარისია `CALL bl_3nf.load_fact_sales();`-ის გაშვება. partition-ები 2022-01-01-დან 2026-01-01-მდე პერიოდს მოიცავს.
+`bl_3nf.create_partitions()` clean layer-ის მონაცემებში არსებული ყველა კვარტლისთვის ქმნის partition-ს, ამიტომ ის `load_fact_sales()`-მდე უნდა გაეშვას. procedure-ის განმეორებით გაშვება უსაფრთხოა.
 
 ### 6.4. შემოწმება
 ```sql
@@ -280,7 +277,7 @@ order_src_id,order_dt,country,region,product_src_id,product_category,supplier_na
  5. BL_CL/Tables/CL_Tables.sql             ← clean layer-ის ცხრილები
  6. BL_CL/Procedures/CL_Local.sql          ← ადგილობრივი მონაცემების გაწმენდა
  7. BL_CL/Procedures/CL_Global.sql         ← საერთაშორისო მონაცემების გაწმენდა
- 8. BL_3NF/Tables/Tables.sql               ← 3NF ცხრილები და partition-ები
+ 8. BL_3NF/Tables/Tables.sql               ← 3NF ცხრილები
  9. BL_3NF/Procedures/*.sql                ← 3NF procedure-ები
 10. BL_DM/Procedures/Tables/Tables.sql     ← data mart-ის ცხრილები
 11. BL_DM/Procedures/*.sql                 ← data mart-ის procedure-ები

@@ -279,22 +279,12 @@ CREATE TABLE bl_3nf.ce_fact_sales (
 ### Partitions (Quarterly)
 
 ```sql
--- Creates partitions from 2022 to 2026
-DO $$
-DECLARE
-    start_date DATE := '2022-01-01';
-    end_date DATE := '2026-01-01';
-BEGIN
-    WHILE start_date < end_date LOOP
-        EXECUTE format(
-            'CREATE TABLE IF NOT EXISTS bl_3nf.ce_fact_sales_%s PARTITION OF bl_3nf.ce_fact_sales FOR VALUES FROM (%L) TO (%L)',
-            to_char(start_date, 'YYYYMM'),
-            start_date,
-            start_date + INTERVAL '3 months'
-        );
-        start_date := start_date + INTERVAL '3 months';
-    END LOOP;
-END $$;
+-- BL_3NF/Procedures/create_partitions.sql
+-- Creates one partition per quarter from the earliest to the latest order_dt in the clean layer.
+CALL bl_3nf.create_partitions();
+
+-- Resulting partitions, e.g.:
+-- bl_3nf.ce_fact_sales_202301  FOR VALUES FROM ('2023-01-01') TO ('2023-04-01')
 ```
 
 ---

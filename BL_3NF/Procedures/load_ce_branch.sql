@@ -14,9 +14,10 @@ BEGIN
 	--	Ensures no duplicates before insertion
 
     WITH new_branches AS (
-        SELECT DISTINCT branch_src_id::VARCHAR(50) FROM bl_cl.clean_global_sales
-        UNION ALL
-        SELECT DISTINCT branch_src_id::VARCHAR(50) FROM bl_cl.clean_local_sales
+        SELECT branch_src_id::VARCHAR(50) FROM bl_cl.clean_global_sales
+        UNION  -- UNION (not UNION ALL): a branch present in both sources must appear once,
+               -- otherwise ON CONFLICT DO UPDATE fails with "cannot affect row a second time"
+        SELECT branch_src_id::VARCHAR(50) FROM bl_cl.clean_local_sales
     ),
     inserted_data AS (
         INSERT INTO bl_3nf.ce_branch (branch_src_id, branch_name, branch_region, last_updated, insert_dt)

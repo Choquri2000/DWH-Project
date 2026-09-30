@@ -85,7 +85,7 @@ SELECT ..., CURRENT_DATE, '9999-12-31', 'Y', ...;
 - **Fact table:** `bl_dm.dwh_fact_sales` is loaded incrementally. Changed rows are updated using `IS DISTINCT FROM` comparison, and only new rows are inserted.
 
 **Partitioning and performance**
-- `bl_3nf.ce_fact_sales` and `bl_dm.dwh_fact_sales` are partitioned by `RANGE (order_dt)` into quarterly partitions. In the data mart they are created dynamically by `bl_dm.create_dwh_fact_sales_partitions()`; in the 3NF layer, by a `DO` block in `BL_3NF/Tables/Tables.sql`.
+- `bl_3nf.ce_fact_sales` and `bl_dm.dwh_fact_sales` are partitioned by `RANGE (order_dt)` into quarterly partitions. `bl_3nf.create_partitions()` and `bl_dm.create_dwh_fact_sales_partitions()` create them dynamically from the actual `order_dt` range, so new dates never fall outside the partitioned range.
 - The materialized view `bl_dm.mv_fact_sales` has a unique index and is refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` after each load. If a concurrent refresh fails, it falls back to a regular refresh.
 - The fact tables have indexes on `(order_id, order_dt)`.
 
@@ -147,8 +147,6 @@ The step-by-step guide (in Georgian) is in [TESTING_GUIDE.md](TESTING_GUIDE.md).
 
 ### Known Limitations and Roadmap
 
-- `bl_master.execute_full_dwh_load()` calls `bl_3nf.load_ce_buyer()` and `bl_3nf.create_partitions()`. These procedures are not yet defined in the repository: the 3NF partitions are created by an anonymous `DO` block in `BL_3NF/Tables/Tables.sql`. Until this is fixed, run the 3NF steps one by one as described in the testing guide.
-- Partitions are pre-created for 2022-01-01 to 2026-01-01. Later dates need the range to be extended.
 - CSV paths in `External_Tables.sql` are Windows-specific.
 - Planned: a Docker Compose setup for one-command deployment, and automated data quality tests in CI.
 
@@ -231,7 +229,7 @@ SELECT ..., CURRENT_DATE, '9999-12-31', 'Y', ...;
 - **Fact table:** `bl_dm.dwh_fact_sales` incremental load-ით ივსება. შეცვლილი ჩანაწერები `IS DISTINCT FROM` შედარებით ახლდება, ემატება მხოლოდ ახალი ჩანაწერები.
 
 **Partitioning და წარმადობა**
-- `bl_3nf.ce_fact_sales` და `bl_dm.dwh_fact_sales` დაყოფილია `RANGE (order_dt)` პრინციპით კვარტალურ partition-ებად. Data mart-ში მათ დინამიკურად ქმნის `bl_dm.create_dwh_fact_sales_partitions()`, 3NF layer-ში კი `BL_3NF/Tables/Tables.sql`-ის `DO` ბლოკი.
+- `bl_3nf.ce_fact_sales` და `bl_dm.dwh_fact_sales` დაყოფილია `RANGE (order_dt)` პრინციპით კვარტალურ partition-ებად. მათ დინამიკურად ქმნიან `bl_3nf.create_partitions()` და `bl_dm.create_dwh_fact_sales_partitions()` რეალური `order_dt` დიაპაზონის მიხედვით, ამიტომ ახალი თარიღები partition-ების გარეთ არასოდეს რჩება.
 - Materialized view `bl_dm.mv_fact_sales`-ს აქვს unique index და ყოველი ჩატვირთვის შემდეგ ახლდება `REFRESH MATERIALIZED VIEW CONCURRENTLY` ბრძანებით. თუ concurrent განახლება ვერ სრულდება, სრულდება ჩვეულებრივი განახლება.
 - Fact table-ებზე შექმნილია index-ები `(order_id, order_dt)` სვეტებზე.
 
@@ -293,8 +291,6 @@ SELECT COUNT(*) FROM bl_dm.dwh_fact_sales;
 
 ### ცნობილი შეზღუდვები და სამომავლო გეგმა
 
-- `bl_master.execute_full_dwh_load()` იძახებს `bl_3nf.load_ce_buyer()` და `bl_3nf.create_partitions()` procedure-ებს, რომლებიც რეპოზიტორიაში ჯერ არ არის განსაზღვრული. 3NF partition-ებს ქმნის anonymous `DO` ბლოკი `BL_3NF/Tables/Tables.sql`-ში. სანამ ეს გასწორდება, 3NF layer-ის ნაბიჯები სათითაოდ გაუშვით, ტესტირების სახელმძღვანელოს მიხედვით.
-- Partition-ები წინასწარ შექმნილია 2022-01-01-დან 2026-01-01-მდე პერიოდისთვის. უფრო გვიანდელი თარიღებისთვის დიაპაზონი უნდა გაფართოვდეს.
 - `External_Tables.sql`-ში CSV ფაილების მისამართები Windows-ზეა მორგებული.
 - დაგეგმილია: Docker Compose ერთი ბრძანებით გასაშვებად და მონაცემთა ხარისხის ავტომატური ტესტები CI-ში.
 
