@@ -1,8 +1,8 @@
-# DWH Project - Technical Documentation
+# DWH Project: Technical Documentation
 
 ## Project Overview
 
-Enterprise Data Warehouse implementation using PostgreSQL with ETL pipeline processing local and international sales data through multiple business logic layers.
+A PostgreSQL Data Warehouse with an ETL pipeline that processes local and international sales data through several business-logic layers.
 
 **Data Sources:**
 - `local_Wardrobe_sales.csv` - Local sales data (50,000 rows)
@@ -438,19 +438,19 @@ CREATE PROCEDURE bl_log.insert_log(
 ## Key Features
 
 ### 1. Incremental Loading
-Tracks last loaded date to only load new data on subsequent runs.
+Tracks the last loaded `order_dt` (watermark) in `bl_log`, so subsequent runs load only new data.
 
 ### 2. SCD Type 2 (Slowly Changing Dimensions)
-Product dimension tracks historical changes with `start_dt`, `end_dt`, and `is_active` columns.
+The product dimension tracks historical changes with the `start_dt`, `end_dt`, and `is_active` columns.
 
 ### 3. Table Partitioning
-Fact tables partitioned quarterly for query performance.
+Fact tables are partitioned quarterly by `order_dt` to improve query performance.
 
 ### 4. Materialized Views
-Auto-refreshed views for recent data access.
+`bl_dm.mv_fact_sales` holds the most recently loaded facts and is refreshed (`CONCURRENTLY`) at the end of each incremental fact load.
 
 ### 5. ETL Logging
-Full execution tracking and error logging for monitoring.
+Every procedure records its execution time, row count, and status; load failures are logged with the error message.
 
 ---
 
@@ -462,9 +462,12 @@ Full execution tracking and error logging for monitoring.
 3. SA_LOCAL/src_local_sales.sql
 4. SA_GLOBAL/src_international_sales.sql
 5. BL_CL/Tables/CL_Tables.sql
-6. BL_3NF/Tables/Tables.sql
-7. BL_DM/Procedures/Tables/Tables.sql
-8. BL_Master/BL_Master.sql
+6. BL_CL/Procedures/CL_Local.sql, BL_CL/Procedures/CL_Global.sql
+7. BL_3NF/Tables/Tables.sql
+8. BL_3NF/Procedures/*.sql
+9. BL_DM/Procedures/Tables/Tables.sql
+10. BL_DM/Procedures/*.sql
+11. BL_Master/BL_Master.sql
 ```
 
 ---
@@ -475,7 +478,7 @@ Full execution tracking and error logging for monitoring.
 CALL bl_master.execute_full_dwh_load();
 ```
 
-Executes:
+Runs the following steps in order:
 1. Source layer loads (Local + International)
 2. Clean layer loads
 3. 3NF dimension loads

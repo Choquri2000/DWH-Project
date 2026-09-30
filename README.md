@@ -1,8 +1,3 @@
-<!--
-  DWH Project – Data Warehouse Implementation
-  Bilingual README – Paste into Choquri2000/DWH-Project
--->
-
 <p align="center">
   <a href="#english">🇺🇸 English</a> &nbsp;•&nbsp;
   <a href="#georgian">🇬🇪 ქართული</a>
@@ -13,256 +8,294 @@
 <!-- ############################## ENGLISH ############################## -->
 <a id="english"></a>
 
-<h1 align="center">DWH Project – Data Warehouse Implementation</h1>
-<p align="center"><em>Kimball dimensional modeling · Incremental ETL · Production-grade SQL</em></p>
+<h1 align="center">DWH Project: Sales Data Warehouse</h1>
+<p align="center"><em>Layered architecture · 3NF core + star schema · SCD Type 2 · Incremental loading · PL/pgSQL</em></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/PostgreSQL-14%2B-336791" alt="PostgreSQL 14+">
+  <img src="https://img.shields.io/badge/code-PL%2FpgSQL-blue" alt="PL/pgSQL">
+</p>
 
 ---
 
-### 📋 Overview
+### Overview
 
-Multi-layer data warehouse processing local and international sales data from CSV files. Built on **Kimball dimensional modeling** methodology with **SCD Type 2** historical tracking, **incremental loading**, and **query-optimized star schemas** — a production-grade foundation for analytics and DS workloads.
-
-**Engine:** PostgreSQL 14+ | **Code:** 100% PL/pgSQL
-
----
-
-### 🏗️ Architecture
-
-```
-CSV Files
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  External Tables   (file-level access via FDW)                      │
-└─────────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Source Layer      (sa_local, sa_global) — raw import, unchanged    │
-└─────────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Clean Layer       (BL_CL) — standardization, dedup, type casting   │
-└─────────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Core Layer (3NF)  (bl_3nf) — dimensions + facts, SCD Type 2       │
-└─────────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  Data Mart         (bl_dm) — star schema, materialized views       │
-└─────────────────────────────────────────────────────────────────────┘
-```
+A multi-layer Data Warehouse that integrates two sales sources, local sales (~50,000 rows) and international sales (~1,000,000 rows), from CSV files into an analytical star schema. The whole ETL process is written in PL/pgSQL stored procedures. It covers:
+- incremental loading
+- SCD Type 2 history for products
+- range-partitioned fact tables
+- execution logging at every layer
 
 ---
 
-### 🔍 SQL Window Functions in Action
+### Architecture
 
-Used throughout the pipeline for deduplication, running aggregates, and change detection:
-
-**ROW_NUMBER() — Source dedup:**
-```sql
-WITH ranked AS (
-  SELECT *, ROW_NUMBER() OVER (
-    PARTITION BY sale_id ORDER BY load_timestamp DESC
-  ) AS rn
-  FROM sa_local.src_sales
-)
-DELETE FROM sa_local.src_sales
-WHERE (sale_id, load_timestamp) IN (
-  SELECT sale_id, load_timestamp FROM ranked WHERE rn > 1
-);
+```
+CSV files (local_sales.csv, international_sales.csv)
+   │  file_fdw
+   ▼
+External tables       sa_local.ext_local_sales, sa_global.ext_international_sales
+   │  incremental load (order_dt watermark)
+   ▼
+Source layer (SA)     sa_local.src_local_sales, sa_global.src_international_sales
+   │  deduplication, source tagging
+   ▼
+Clean layer (BL_CL)   BL_CL.CLEAN_LOCAL_SALES, BL_CL.CLEAN_GLOBAL_SALES
+   │  surrogate keys, normalisation, SCD Type 2
+   ▼
+Core layer (BL_3NF)   ce_geo, ce_supplier, ce_buyer, ce_branch, ce_product_scd2, ce_time, ce_fact_sales
+   │  star schema, upserts, partitioning
+   ▼
+Data mart (BL_DM)     dwh_dim_* dimensions, dwh_fact_sales, mv_fact_sales
 ```
 
-**LAG() — SCD Type 2 change detection:**
-```sql
-SELECT product_id, product_name, unit_price,
-       LAG(unit_price) OVER (
-         PARTITION BY product_id ORDER BY effective_date
-       ) AS prev_price
-FROM bl_3nf.dim_products_scd;
-```
-
-**SUM() OVER — Running totals in Data Mart:**
-```sql
-SELECT payment_date, payment_amount,
-       SUM(payment_amount) OVER (
-         ORDER BY payment_date
-       ) AS cumulative_revenue
-FROM bl_dm.v_fact_payments;
-```
+| Schema | Role |
+|--------|------|
+| `sa_local`, `sa_global` | Raw source data, loaded incrementally from the external tables |
+| `BL_CL` | Cleaned, deduplicated records tagged with `source_system` / `source_entity` |
+| `bl_3nf` | Normalised core model (3NF) with SCD Type 2 product history |
+| `bl_dm` | Star schema for reporting: six dimensions and a partitioned fact table |
+| `bl_log` | Watermarks and procedure execution log |
+| `bl_master` | Orchestration procedure for the full load |
 
 ---
 
-### ⚡ Incremental Loading
+### Key Techniques
 
-High-watermark pattern — only new/changed records are processed:
+**Incremental loading (watermark pattern)**
+- Every source and clean-layer load reads its last loaded `order_dt` from `bl_log.incremental_load_log` or `bl_log.clean_load_log`.
+- It processes only newer records. `ON CONFLICT ... DO UPDATE` keeps re-runs idempotent.
+- It then advances the watermark and records the row count and status. On failure, the status is set to `FAILED` together with the error message.
 
-```
-1. Read last max load_id from bl_log.control_table
-2. Extract source rows WHERE load_id > watermark
-3. MERGE into BL_CL (INSERT new, UPDATE changed)
-4. MERGE into bl_3nf dimensions (SCD Type 2 logic)
-5. INSERT into bl_dm fact tables
-6. Update watermark in bl_log.control_table
-```
-
-Execution:
-```sql
-CALL bl_master.execute_full_dwh_load();
-```
-
----
-
-### 📈 Scalability Design
-
-| Technique | Implementation |
-|-----------|---------------|
-| **Table Partitioning** | Fact tables partitioned by quarter (`PARTITION BY RANGE (payment_date)`) |
-| **Materialized Views** | Pre-aggregated daily/ monthly/ quarterly snapshots, refreshed via cron |
-| **Indexing Strategy** | B-tree on FK columns, BRIN on date columns for partitioned fact tables |
-| **ETL Monitoring** | Full execution log (`bl_log.procedure_execution_log`) with duration, row counts, error codes |
-
----
-
-### 🚀 Setup
+**SCD Type 2**: `bl_3nf.ce_product_scd2`
+- When a product's category or supplier changes, the current version is closed and a new active version is inserted:
 
 ```sql
-CREATE DATABASE dwh_project;
+UPDATE bl_3nf.ce_product_scd2
+SET end_dt = CURRENT_DATE - INTERVAL '1 day', is_active = 'N'
+WHERE ... AND end_dt = '9999-12-31'
+  AND (product_category <> p.product_category OR supplier_id <> ...);
 
-CREATE SCHEMA sa_local;   CREATE SCHEMA sa_global;
-CREATE SCHEMA BL_CL;      CREATE SCHEMA bl_3nf;
-CREATE SCHEMA bl_dm;      CREATE SCHEMA bl_log;
+INSERT INTO bl_3nf.ce_product_scd2 (..., start_dt, end_dt, is_active, ...)
+SELECT ..., CURRENT_DATE, '9999-12-31', 'Y', ...;
+```
+
+**Data mart loading**: `bl_dm`
+- **Dimensions:** geo, buyer, branch and time are upserted with `INSERT ... ON CONFLICT DO UPDATE` (SCD Type 1), and new rows are counted with `xmax = 0`. Supplier and product are insert-only (new keys only).
+- **Fact table:** `bl_dm.dwh_fact_sales` is loaded incrementally. Changed rows are updated using `IS DISTINCT FROM` comparison, and only new rows are inserted.
+
+**Partitioning and performance**
+- `bl_3nf.ce_fact_sales` and `bl_dm.dwh_fact_sales` are partitioned by `RANGE (order_dt)` into quarterly partitions. In the data mart they are created dynamically by `bl_dm.create_dwh_fact_sales_partitions()`; in the 3NF layer, by a `DO` block in `BL_3NF/Tables/Tables.sql`.
+- The materialized view `bl_dm.mv_fact_sales` has a unique index and is refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` after each load. If a concurrent refresh fails, it falls back to a regular refresh.
+- The fact tables have indexes on `(order_id, order_dt)`.
+
+**Logging**
+- Every procedure writes the procedure name, execution time, row count and status to `bl_log.procedure_execution_log`.
+
+---
+
+### How to Run
+
+**Requirements**
+- PostgreSQL 14+ with the `file_fdw` extension
+- The source CSV files at the paths defined in `External_Tables/External_Tables.sql` (default: `C:\temp\`)
+
+**1. Create the schemas**
+```sql
+CREATE SCHEMA sa_local;  CREATE SCHEMA sa_global;
+CREATE SCHEMA BL_CL;     CREATE SCHEMA bl_3nf;
+CREATE SCHEMA bl_dm;     CREATE SCHEMA bl_log;
 CREATE SCHEMA bl_master;
 ```
 
-Run SQL files in order:
+**2. Run the scripts in this order**
 ```
-1. BL_LOG/BL_LOG.sql
-2. External_Tables/External_Tables.sql
-3. SA_LOCAL/src_local_sales.sql
-4. SA_GLOBAL/src_international_sales.sql
-5. BL_CL/Tables/CL_Tables.sql
-6. BL_3NF/Tables/Tables.sql
-7. BL_DM/Procedures/Tables/Tables.sql
-8. BL_Master/BL_Master.sql
+ 1. BL_LOG/BL_LOG.sql
+ 2. External_Tables/External_Tables.sql
+ 3. SA_LOCAL/src_local_sales.sql
+ 4. SA_GLOBAL/src_international_sales.sql
+ 5. BL_CL/Tables/CL_Tables.sql
+ 6. BL_CL/Procedures/CL_Local.sql, BL_CL/Procedures/CL_Global.sql
+ 7. BL_3NF/Tables/Tables.sql
+ 8. BL_3NF/Procedures/*.sql
+ 9. BL_DM/Procedures/Tables/Tables.sql
+10. BL_DM/Procedures/*.sql
+11. BL_Master/BL_Master.sql
 ```
 
----
-
-### 🔄 Monitoring
-
+**3. Run the full load and check the result**
 ```sql
--- Check last ETL run
-SELECT * FROM bl_log.procedure_execution_log ORDER BY start_time DESC LIMIT 5;
+CALL bl_master.execute_full_dwh_load();
 
--- Verify row counts across layers
-SELECT 'sa_local' AS layer, COUNT(*) FROM sa_local.src_sales
-UNION ALL
-SELECT 'bl_dm', COUNT(*) FROM bl_dm.fact_sales;
+SELECT * FROM bl_log.procedure_execution_log ORDER BY execution_time DESC LIMIT 10;
+SELECT * FROM bl_log.incremental_load_log;
+SELECT COUNT(*) FROM bl_dm.dwh_fact_sales;
 ```
 
+The step-by-step guide (in Georgian) is in [TESTING_GUIDE.md](TESTING_GUIDE.md). Data quality checks are in [Check_Script/Check_Scripts.sql](Check_Script/Check_Scripts.sql).
+
 ---
+
+### Documentation
+
+- [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md): table definitions and procedure descriptions for every layer
+- [TESTING_GUIDE.md](TESTING_GUIDE.md): step-by-step testing guide
+- [Presentation_Final_Project.pdf](Presentation_Final_Project.pdf): project presentation
+- [Business_Template.docx](Business_Template.docx): business requirements template
+
+---
+
+### Known Limitations and Roadmap
+
+- `bl_master.execute_full_dwh_load()` calls `bl_3nf.load_ce_buyer()` and `bl_3nf.create_partitions()`. These procedures are not yet defined in the repository: the 3NF partitions are created by an anonymous `DO` block in `BL_3NF/Tables/Tables.sql`. Until this is fixed, run the 3NF steps one by one as described in the testing guide.
+- Partitions are pre-created for 2022-01-01 to 2026-01-01. Later dates need the range to be extended.
+- CSV paths in `External_Tables.sql` are Windows-specific.
+- Planned: a Docker Compose setup for one-command deployment, and automated data quality tests in CI.
+
+<p align="right"><a href="#georgian">🇬🇪 ქართული ↓</a></p>
 
 <hr>
 
 <!-- ############################## GEORGIAN ############################## -->
 <a id="georgian"></a>
 
-<h1 align="center">DWH პროექტი – მონაცემთა საწყობის იმპლემენტაცია</h1>
-<p align="center"><em>Kimball-ის მოდელირება · ინკრემენტალური ETL · საწარმოო SQL</em></p>
+<h1 align="center">DWH Project: გაყიდვების Data Warehouse</h1>
+<p align="center"><em>მრავალშრიანი არქიტექტურა · 3NF core + star schema · SCD Type 2 · Incremental loading · PL/pgSQL</em></p>
 
 ---
 
-### 📋 მიმოხილვა
+### მიმოხილვა
 
-მრავალფენიანი მონაცემთა საწყობი, რომელიც ამუშავებს ადგილობრივი და საერთაშორისო გაყიდვების მონაცემებს CSV ფაილებიდან. დაფუძნებულია **Kimball-ის განზომილებიანი მოდელირების** მეთოდოლოგიაზე, **SCD Type 2** ისტორიული თრექინგით, **ინკრემენტალური ჩატვირთვით** და ოპტიმიზებული ვარსკვლავური სქემებით.
-
-**ძრავა:** PostgreSQL 14+ | **კოდი:** 100% PL/pgSQL
+პროექტი წარმოადგენს მრავალშრიან Data Warehouse-ს, რომელიც ორი წყაროს მონაცემებს აერთიანებს CSV ფაილებიდან ანალიტიკურ star schema-ში. ეს წყაროებია ადგილობრივი გაყიდვები (~50 000 ჩანაწერი) და საერთაშორისო გაყიდვები (~1 000 000 ჩანაწერი). ETL პროცესი მთლიანად PL/pgSQL stored procedure-ებით არის დაწერილი და მოიცავს:
+- incremental loading-ს
+- პროდუქტების ისტორიის შენახვას SCD Type 2 მეთოდით
+- partitioning-ს fact table-ებში
+- შესრულების ლოგირებას ყველა layer-ზე
 
 ---
 
-### 🏗️ არქიტექტურა
+### არქიტექტურა
 
 ```
-CSV ფაილები → External Tables → SA (raw) → BL_CL (clean) → bl_3nf (core) → bl_dm (mart)
+CSV ფაილები (local_sales.csv, international_sales.csv)
+   │  file_fdw
+   ▼
+External tables       sa_local.ext_local_sales, sa_global.ext_international_sales
+   │  incremental load (order_dt watermark)
+   ▼
+Source layer (SA)     sa_local.src_local_sales, sa_global.src_international_sales
+   │  დუბლიკატების მოცილება, წყაროს მონიშვნა
+   ▼
+Clean layer (BL_CL)   BL_CL.CLEAN_LOCAL_SALES, BL_CL.CLEAN_GLOBAL_SALES
+   │  surrogate key-ები, ნორმალიზაცია, SCD Type 2
+   ▼
+Core layer (BL_3NF)   ce_geo, ce_supplier, ce_buyer, ce_branch, ce_product_scd2, ce_time, ce_fact_sales
+   │  star schema, upsert, partitioning
+   ▼
+Data mart (BL_DM)     dwh_dim_* dimension-ები, dwh_fact_sales, mv_fact_sales
 ```
+
+| Schema | დანიშნულება |
+|--------|-------------|
+| `sa_local`, `sa_global` | წყაროს ნედლი მონაცემები, რომლებიც external table-ებიდან incremental load-ით იტვირთება |
+| `BL_CL` | გაწმენდილი, დუბლიკატებისგან თავისუფალი ჩანაწერები `source_system` / `source_entity` მონიშვნით |
+| `bl_3nf` | ნორმალიზებული core მოდელი (3NF), პროდუქტების SCD Type 2 ისტორიით |
+| `bl_dm` | Star schema რეპორტინგისთვის: ექვსი dimension და დანაწილებული fact table |
+| `bl_log` | Watermark-ები და procedure-ების შესრულების ლოგი |
+| `bl_master` | სრული ჩატვირთვის მმართველი procedure |
 
 ---
 
-### 🔍 SQL Window Functions მაგალითები
+### ძირითადი ტექნიკები
 
-**ROW_NUMBER() — დუბლიკატების მოცილება:**
+**Incremental loading (watermark მიდგომა)**
+- Source და clean layer-ის ყოველი ჩატვირთვა ბოლოს ჩატვირთულ `order_dt`-ს კითხულობს `bl_log.incremental_load_log`-იდან ან `bl_log.clean_load_log`-იდან.
+- მუშავდება მხოლოდ უფრო ახალი ჩანაწერები. `ON CONFLICT ... DO UPDATE` განმეორებით გაშვებას უსაფრთხოს ხდის.
+- ბოლოს watermark ახლდება და ფიქსირდება ჩანაწერების რაოდენობა და სტატუსი. შეცდომის შემთხვევაში სტატუსი ხდება `FAILED` და ინახება შეცდომის ტექსტი.
+
+**SCD Type 2**: `bl_3nf.ce_product_scd2`
+- როცა პროდუქტის კატეგორია ან მომწოდებელი იცვლება, მიმდინარე ვერსია იხურება და ემატება ახალი აქტიური ვერსია:
+
 ```sql
-WITH ranked AS (
-  SELECT *, ROW_NUMBER() OVER (
-    PARTITION BY sale_id ORDER BY load_timestamp DESC
-  ) AS rn
-  FROM sa_local.src_sales
-)
-DELETE FROM sa_local.src_sales WHERE rn > 1;
+UPDATE bl_3nf.ce_product_scd2
+SET end_dt = CURRENT_DATE - INTERVAL '1 day', is_active = 'N'
+WHERE ... AND end_dt = '9999-12-31'
+  AND (product_category <> p.product_category OR supplier_id <> ...);
+
+INSERT INTO bl_3nf.ce_product_scd2 (..., start_dt, end_dt, is_active, ...)
+SELECT ..., CURRENT_DATE, '9999-12-31', 'Y', ...;
 ```
 
-**LAG() — SCD Type 2 ცვლილებების აღმოჩენა:**
-```sql
-SELECT product_id, unit_price,
-       LAG(unit_price) OVER (
-         PARTITION BY product_id ORDER BY effective_date
-       ) AS prev_price
-FROM bl_3nf.dim_products_scd;
-```
+**Data mart-ის ჩატვირთვა**: `bl_dm`
+- **Dimension-ები:** geo, buyer, branch და time იტვირთება `INSERT ... ON CONFLICT DO UPDATE`-ით (SCD Type 1), ახალი ჩანაწერების რაოდენობა კი `xmax = 0` პირობით ითვლება. Supplier და product dimension-ებს მხოლოდ ახალი key-ები ემატება.
+- **Fact table:** `bl_dm.dwh_fact_sales` incremental load-ით ივსება. შეცვლილი ჩანაწერები `IS DISTINCT FROM` შედარებით ახლდება, ემატება მხოლოდ ახალი ჩანაწერები.
 
-**SUM() OVER — კუმულაციური ჯამი:**
-```sql
-SELECT payment_date, payment_amount,
-       SUM(payment_amount) OVER (ORDER BY payment_date) AS cumulative_revenue
-FROM bl_dm.v_fact_payments;
-```
+**Partitioning და წარმადობა**
+- `bl_3nf.ce_fact_sales` და `bl_dm.dwh_fact_sales` დაყოფილია `RANGE (order_dt)` პრინციპით კვარტალურ partition-ებად. Data mart-ში მათ დინამიკურად ქმნის `bl_dm.create_dwh_fact_sales_partitions()`, 3NF layer-ში კი `BL_3NF/Tables/Tables.sql`-ის `DO` ბლოკი.
+- Materialized view `bl_dm.mv_fact_sales`-ს აქვს unique index და ყოველი ჩატვირთვის შემდეგ ახლდება `REFRESH MATERIALIZED VIEW CONCURRENTLY` ბრძანებით. თუ concurrent განახლება ვერ სრულდება, სრულდება ჩვეულებრივი განახლება.
+- Fact table-ებზე შექმნილია index-ები `(order_id, order_dt)` სვეტებზე.
+
+**ლოგირება**
+- ყოველი procedure `bl_log.procedure_execution_log`-ში იწერს სახელს, შესრულების დროს, ჩანაწერების რაოდენობასა და სტატუსს.
 
 ---
 
-### ⚡ ინკრემენტალური ჩატვირთვა
+### გაშვება
 
-High-watermark პატერნი — მხოლოდ ახალი/შეცვლილი ჩანაწერები მუშავდება:
+**მოთხოვნები**
+- PostgreSQL 14+ და `file_fdw` extension
+- წყაროს CSV ფაილები `External_Tables/External_Tables.sql`-ში მითითებულ მისამართზე (ნაგულისხმევად `C:\temp\`)
 
+**1. შექმენით schema-ები**
+```sql
+CREATE SCHEMA sa_local;  CREATE SCHEMA sa_global;
+CREATE SCHEMA BL_CL;     CREATE SCHEMA bl_3nf;
+CREATE SCHEMA bl_dm;     CREATE SCHEMA bl_log;
+CREATE SCHEMA bl_master;
 ```
-1. წინა max load_id წაკითხვა bl_log.control_table-დან
-2. წყაროდან იმ ჩანაწერების ამოღება, სადაც load_id > watermark
-3. MERGE BL_CL-ში (INSERT + UPDATE)
-4. MERGE bl_3nf განზომილებებში (SCD Type 2)
-5. INSERT bl_dm fact ცხრილებში
-6. watermark-ის განახლება
+
+**2. გაუშვით სკრიპტები შემდეგი თანმიმდევრობით**
+```
+ 1. BL_LOG/BL_LOG.sql
+ 2. External_Tables/External_Tables.sql
+ 3. SA_LOCAL/src_local_sales.sql
+ 4. SA_GLOBAL/src_international_sales.sql
+ 5. BL_CL/Tables/CL_Tables.sql
+ 6. BL_CL/Procedures/CL_Local.sql, BL_CL/Procedures/CL_Global.sql
+ 7. BL_3NF/Tables/Tables.sql
+ 8. BL_3NF/Procedures/*.sql
+ 9. BL_DM/Procedures/Tables/Tables.sql
+10. BL_DM/Procedures/*.sql
+11. BL_Master/BL_Master.sql
 ```
 
+**3. გაუშვით სრული ჩატვირთვა და შეამოწმეთ შედეგი**
 ```sql
 CALL bl_master.execute_full_dwh_load();
+
+SELECT * FROM bl_log.procedure_execution_log ORDER BY execution_time DESC LIMIT 10;
+SELECT * FROM bl_log.incremental_load_log;
+SELECT COUNT(*) FROM bl_dm.dwh_fact_sales;
 ```
+
+დეტალური, ნაბიჯ-ნაბიჯ ინსტრუქცია მოცემულია [TESTING_GUIDE.md](TESTING_GUIDE.md)-ში. მონაცემთა ხარისხის შემოწმების query-ები მოცემულია [Check_Script/Check_Scripts.sql](Check_Script/Check_Scripts.sql)-ში.
 
 ---
 
-### 📈 მასშტაბირება
+### დოკუმენტაცია
 
-| ტექნიკა | აღწერა |
-|---------|---------|
-| **Partitioning** | Fact ცხრილების კვარტალური დაყოფა `RANGE (payment_date)` |
-| **Materialized Views** | წინასწარ აგრეგირებული ყოველდღიური/თვიური/კვარტალური სნეპშოტები, განახლება cron-ით |
-| **ინდექსები** | B-tree FK სვეტებზე, BRIN თარიღის სვეტებზე |
-| **მონიტორინგი** | `bl_log.procedure_execution_log` — ხანგრძლივობა, რაოდენობა, შეცდომები |
+- [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md): ცხრილებისა და procedure-ების აღწერა ყველა layer-ისთვის
+- [TESTING_GUIDE.md](TESTING_GUIDE.md): ტესტირების ნაბიჯ-ნაბიჯ სახელმძღვანელო
+- [Presentation_Final_Project.pdf](Presentation_Final_Project.pdf): პროექტის პრეზენტაცია
+- [Business_Template.docx](Business_Template.docx): ბიზნეს მოთხოვნების შაბლონი
 
 ---
 
-### 🚀 გაშვება
+### ცნობილი შეზღუდვები და სამომავლო გეგმა
 
-```sql
-CREATE DATABASE dwh_project;
--- შექმენით 7 სქემა (sa_local, sa_global, BL_CL, bl_3nf, bl_dm, bl_log, bl_master)
--- გაუშვით SQL ფაილები 1-დან 8-მდე თანმიმდევრობით
-```
+- `bl_master.execute_full_dwh_load()` იძახებს `bl_3nf.load_ce_buyer()` და `bl_3nf.create_partitions()` procedure-ებს, რომლებიც რეპოზიტორიაში ჯერ არ არის განსაზღვრული. 3NF partition-ებს ქმნის anonymous `DO` ბლოკი `BL_3NF/Tables/Tables.sql`-ში. სანამ ეს გასწორდება, 3NF layer-ის ნაბიჯები სათითაოდ გაუშვით, ტესტირების სახელმძღვანელოს მიხედვით.
+- Partition-ები წინასწარ შექმნილია 2022-01-01-დან 2026-01-01-მდე პერიოდისთვის. უფრო გვიანდელი თარიღებისთვის დიაპაზონი უნდა გაფართოვდეს.
+- `External_Tables.sql`-ში CSV ფაილების მისამართები Windows-ზეა მორგებული.
+- დაგეგმილია: Docker Compose ერთი ბრძანებით გასაშვებად და მონაცემთა ხარისხის ავტომატური ტესტები CI-ში.
 
-```sql
-CALL bl_master.execute_full_dwh_load();
-SELECT * FROM bl_log.procedure_execution_log ORDER BY start_time DESC LIMIT 5;
-```
+<p align="right"><a href="#english">🇺🇸 English ↑</a></p>
